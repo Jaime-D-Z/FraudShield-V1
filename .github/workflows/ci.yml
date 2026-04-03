@@ -15,14 +15,19 @@ env:
   IMAGE_PREFIX: ${{ github.repository_owner }}/fraudshield
 
 jobs:
-
   # ── 1. LINT & FORMAT ────────────────────────────────────────
   lint:
     name: Lint & format
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [transaction-service, risk-engine, audit-service, notification-service]
+        service:
+          [
+            transaction-service,
+            risk-engine,
+            audit-service,
+            notification-service,
+          ]
     steps:
       - uses: actions/checkout@v4
 
@@ -41,8 +46,7 @@ jobs:
 
       - name: Mypy type check
         run: mypy services/${{ matrix.service }}/ --ignore-missing-imports
-        continue-on-error: true   # warning, no bloquea
-
+        continue-on-error: true # warning, no bloquea
 
   # ── 2. TESTS ────────────────────────────────────────────────
   test:
@@ -89,8 +93,8 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://fraud:fraud123@localhost:5432/fraudshield_test
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret
+          GROQ_API_KEY: test-key
         run: pytest services/ -v --tb=short
-
 
   # ── 3. BUILD & SECURITY SCAN ────────────────────────────────
   build-and-scan:
@@ -99,7 +103,13 @@ jobs:
     needs: test
     strategy:
       matrix:
-        service: [transaction-service, risk-engine, audit-service, notification-service]
+        service:
+          [
+            transaction-service,
+            risk-engine,
+            audit-service,
+            notification-service,
+          ]
 
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +125,7 @@ jobs:
         with:
           image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
           format: table
-          exit-code: "1"             # falla el pipeline si hay CVE CRITICAL
+          exit-code: "1" # falla el pipeline si hay CVE CRITICAL
           severity: CRITICAL,HIGH
 
       - name: Bandit — scan código Python
@@ -131,7 +141,6 @@ jobs:
           docker tag ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }} \
                      ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
           docker push ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
-
 
   # ── 4. SMOKE TEST DOCKER COMPOSE ─────────────────────────────
   deploy:
