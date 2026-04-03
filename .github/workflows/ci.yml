@@ -10,9 +10,13 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  packages: write
+  contents: read
+
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository_owner }}/fraudshield
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/fraudshield
 
 jobs:
   # ── 1. LINT & FORMAT ────────────────────────────────────────
@@ -117,7 +121,7 @@ jobs:
       - name: Lowercase image prefix
         run: |
           OWNER="${{ github.repository_owner }}"
-          echo "IMAGE_PREFIX=${OWNER,,}/fraudshield" >> $GITHUB_ENV
+          echo "IMAGE_PREFIX=ghcr.io/${OWNER,,}/fraudshield" >> $GITHUB_ENV
 
       - name: Build Docker image
         run: |
