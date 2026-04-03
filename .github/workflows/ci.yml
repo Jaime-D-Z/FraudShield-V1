@@ -114,6 +114,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Lowercase image prefix
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          echo "IMAGE_PREFIX=${OWNER,,}/fraudshield" >> $GITHUB_ENV
+
       - name: Build Docker image
         run: |
           docker build \
