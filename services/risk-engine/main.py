@@ -28,7 +28,16 @@ log = structlog.get_logger()
 tracer = trace.get_tracer("risk-engine")
 app = FastAPI(title="FraudShield — Risk Engine", version="1.0.0")
 Instrumentator().instrument(app).expose(app)
-GROQ_CLIENT = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+
+
+def build_groq_client() -> AsyncGroq | None:
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return None
+    return AsyncGroq(api_key=api_key)
+
+
+GROQ_CLIENT = build_groq_client()
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 STREAM_NAME = "transactions"
@@ -105,6 +114,10 @@ Transaction:
 
 Return ONLY this JSON, no explanation:
 {{"adjusted_score": <0-100>, "confidence": "<low|medium|high>", "summary": "<one sentence>"}}"""
+
+    if GROQ_CLIENT is None:
+        log.warning("llm_client_unavailable", reason="missing_groq_api_key")
+        return rule_score
 
     try:
         with tracer.start_as_current_span("groq_analyze") as span:
