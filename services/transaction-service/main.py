@@ -55,7 +55,7 @@ FastAPIInstrumentor.instrument_app(app)
 Instrumentator().instrument(app).expose(app)  # expone /metrics para Prometheus
 
 # ─── REDIS CLIENT ───────────────────────────────────────────
-redis_client: aioredis.Redis = None
+redis_client: aioredis.Redis | None = None
 
 
 @app.on_event("startup")
@@ -71,7 +71,8 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    await redis_client.close()
+    if redis_client is not None:
+        await redis_client.close()
 
 
 # ─── HELPERS ────────────────────────────────────────────────
@@ -104,6 +105,8 @@ def verify_jwt(authorization: str = Header(...)) -> str:
 
 async def publish_event(stream: str, event_type: str, payload: dict):
     """Publica un evento en Redis Streams."""
+    if redis_client is None:
+        raise RuntimeError("redis_client is not initialized")
     await redis_client.xadd(
         stream,
         {

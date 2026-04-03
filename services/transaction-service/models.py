@@ -7,6 +7,7 @@ from sqlalchemy.orm import DeclarativeBase
 from pydantic import BaseModel, field_validator
 from decimal import Decimal
 from enum import Enum
+from typing import Any
 import uuid
 
 
@@ -33,7 +34,7 @@ class Transaction(Base):
     currency = Column(String(3), nullable=False, default="USD")
     merchant_id = Column(String, nullable=False)
     merchant_country = Column(String(2), nullable=False)  # ISO 3166
-    status = Column(
+    status: Any = Column(
         SAEnum(TransactionStatus), nullable=False, default=TransactionStatus.PENDING
     )
     risk_score = Column(Numeric(5, 2), nullable=True)

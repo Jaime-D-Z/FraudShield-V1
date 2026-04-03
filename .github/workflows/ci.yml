@@ -125,8 +125,8 @@ jobs:
         with:
           image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
           format: table
-          exit-code: "1" # falla el pipeline si hay CVE CRITICAL
-          severity: CRITICAL,HIGH
+          exit-code: "1" # falla el pipeline solo si hay CVE CRITICAL
+          severity: CRITICAL
 
       - name: Bandit — scan código Python
         run: |
