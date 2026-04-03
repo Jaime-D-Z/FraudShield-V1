@@ -2,8 +2,12 @@
 #  notification-service  —  main.py
 #  Consume transaction.results · notifica según decisión
 # ============================================================
-import asyncio, os, json
-import httpx, structlog, redis.asyncio as aioredis
+import asyncio
+import os
+
+import httpx
+import redis.asyncio as aioredis
+import structlog
 import aiosmtplib
 from email.message import EmailMessage
 from fastapi import FastAPI
@@ -15,11 +19,11 @@ tracer = trace.get_tracer("notification-service")
 app = FastAPI(title="FraudShield — Notification Service")
 Instrumentator().instrument(app).expose(app)
 
-REDIS_URL        = os.getenv("REDIS_URL", "redis://localhost:6379")
-SLACK_WEBHOOK    = os.getenv("SLACK_WEBHOOK_URL", "")
-ALERT_EMAIL_TO   = os.getenv("ALERT_EMAIL_TO", "")
-STREAM_NAME      = "transaction.results"
-GROUP_NAME       = "notification-group"
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK_URL", "")
+ALERT_EMAIL_TO = os.getenv("ALERT_EMAIL_TO", "")
+STREAM_NAME = "transaction.results"
+GROUP_NAME = "notification-group"
 
 # Solo notificar cuando el score supera este umbral
 NOTIFY_THRESHOLD = 40
@@ -41,10 +45,13 @@ async def consume_stream():
     while True:
         try:
             messages = await redis.xreadgroup(
-                groupname=GROUP_NAME, consumername="notifier-1",
-                streams={STREAM_NAME: ">"}, count=10, block=2000,
+                groupname=GROUP_NAME,
+                consumername="notifier-1",
+                streams={STREAM_NAME: ">"},
+                count=10,
+                block=2000,
             )
-            for stream, entries in (messages or []):
+            for stream, entries in messages or []:
                 for msg_id, fields in entries:
                     score = float(fields.get("score", 0))
                     if score >= NOTIFY_THRESHOLD:
@@ -58,11 +65,13 @@ async def consume_stream():
 async def send_notification(fields: dict):
     """Envía alerta a Slack si está configurado, sino solo loguea."""
     decision = fields["decision"]
-    score    = fields["score"]
-    txn_id   = fields["transaction_id"]
-    user_id  = fields["user_id"]
+    score = fields["score"]
+    txn_id = fields["transaction_id"]
+    user_id = fields["user_id"]
 
-    emoji = {"HELD": ":warning:", "BLOCKED": ":rotating_light:"}.get(decision, ":white_check_mark:")
+    emoji = {"HELD": ":warning:", "BLOCKED": ":rotating_light:"}.get(
+        decision, ":white_check_mark:"
+    )
     message = (
         f"{emoji} *FraudShield Alert*\n"
         f"Transaction `{txn_id}`\n"

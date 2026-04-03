@@ -16,29 +16,31 @@ class Base(DeclarativeBase):
 
 # ─── ENUM DE ESTADO ─────────────────────────────────────────
 class TransactionStatus(str, Enum):
-    PENDING    = "PENDING"
-    ANALYZING  = "ANALYZING"
-    APPROVED   = "APPROVED"
-    HELD       = "HELD"
-    BLOCKED    = "BLOCKED"
+    PENDING = "PENDING"
+    ANALYZING = "ANALYZING"
+    APPROVED = "APPROVED"
+    HELD = "HELD"
+    BLOCKED = "BLOCKED"
 
 
 # ─── MODELO ORM ─────────────────────────────────────────────
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id           = Column(String, nullable=False, index=True)
-    amount            = Column(Numeric(18, 2), nullable=False)
-    currency          = Column(String(3), nullable=False, default="USD")
-    merchant_id       = Column(String, nullable=False)
-    merchant_country  = Column(String(2), nullable=False)   # ISO 3166
-    status            = Column(SAEnum(TransactionStatus), nullable=False, default=TransactionStatus.PENDING)
-    risk_score        = Column(Numeric(5, 2), nullable=True)
-    fraud_reasons     = Column(String, nullable=True)       # JSON string
-    created_at        = Column(DateTime(timezone=True), nullable=False)
-    updated_at        = Column(DateTime(timezone=True), nullable=True)
-    idempotency_key   = Column(String, unique=True, nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String, nullable=False, index=True)
+    amount = Column(Numeric(18, 2), nullable=False)
+    currency = Column(String(3), nullable=False, default="USD")
+    merchant_id = Column(String, nullable=False)
+    merchant_country = Column(String(2), nullable=False)  # ISO 3166
+    status = Column(
+        SAEnum(TransactionStatus), nullable=False, default=TransactionStatus.PENDING
+    )
+    risk_score = Column(Numeric(5, 2), nullable=True)
+    fraud_reasons = Column(String, nullable=True)  # JSON string
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+    idempotency_key = Column(String, unique=True, nullable=False)
 
 
 # ─── SCHEMAS PYDANTIC ────────────────────────────────────────

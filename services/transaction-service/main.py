@@ -12,22 +12,38 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_fastapi_instrumentator import Instrumentator
-import structlog, redis.asyncio as aioredis, uuid, os
+import os
+import uuid
+
+import redis.asyncio as aioredis
+import structlog
 from datetime import datetime, timezone
 
 try:
-    from .models import Transaction, TransactionStatus, TransactionCreate, TransactionResponse
+    from .models import (
+        Transaction,
+        TransactionStatus,
+        TransactionCreate,
+        TransactionResponse,
+    )
     from .database import get_db, engine, Base
 except ImportError:  # pragma: no cover - fallback para ejecucion local directa
-    from models import Transaction, TransactionStatus, TransactionCreate, TransactionResponse
+    from models import (
+        Transaction,
+        TransactionStatus,
+        TransactionCreate,
+        TransactionResponse,
+    )
     from database import get_db, engine, Base
 
 # ─── SETUP OBSERVABILIDAD ───────────────────────────────────
 provider = TracerProvider()
 provider.add_span_processor(
-    BatchSpanProcessor(OTLPSpanExporter(
-        endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo:4317")
-    ))
+    BatchSpanProcessor(
+        OTLPSpanExporter(
+            endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo:4317")
+        )
+    )
 )
 trace.set_tracer_provider(provider)
 tracer = trace.get_tracer("transaction-service")
@@ -36,10 +52,11 @@ log = structlog.get_logger()
 
 app = FastAPI(title="FraudShield — Transaction Service", version="1.0.0")
 FastAPIInstrumentor.instrument_app(app)
-Instrumentator().instrument(app).expose(app)   # expone /metrics para Prometheus
+Instrumentator().instrument(app).expose(app)  # expone /metrics para Prometheus
 
 # ─── REDIS CLIENT ───────────────────────────────────────────
 redis_client: aioredis.Redis = None
+
 
 @app.on_event("startup")
 async def startup():
@@ -47,14 +64,15 @@ async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     redis_client = aioredis.from_url(
-        os.getenv("REDIS_URL", "redis://localhost:6379"),
-        decode_responses=True
+        os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True
     )
     log.info("transaction-service started")
+
 
 @app.on_event("shutdown")
 async def shutdown():
     await redis_client.close()
+
 
 # ─── HELPERS ────────────────────────────────────────────────
 def verify_jwt(authorization: str = Header(...)) -> str:
@@ -83,13 +101,19 @@ def verify_jwt(authorization: str = Header(...)) -> str:
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid token") from exc
 
+
 async def publish_event(stream: str, event_type: str, payload: dict):
     """Publica un evento en Redis Streams."""
     await redis_client.xadd(
         stream,
-        {"event_type": event_type, "payload": str(payload), "ts": datetime.now(timezone.utc).isoformat()},
-        maxlen=10_000
+        {
+            "event_type": event_type,
+            "payload": str(payload),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        },
+        maxlen=10_000,
     )
+
 
 # ─── ENDPOINTS ──────────────────────────────────────────────
 @app.post("/transactions", status_code=202)
@@ -103,7 +127,9 @@ async def create_transaction(
         span.set_attribute("amount", float(body.amount))
 
         # 1. Idempotencia: si ya existe esta transaction_id, devolver la existente
-        existing_stmt = select(Transaction).where(Transaction.idempotency_key == body.idempotency_key)
+        existing_stmt = select(Transaction).where(
+            Transaction.idempotency_key == body.idempotency_key
+        )
         existing_result = await db.execute(existing_stmt)
         existing = existing_result.scalar_one_or_none()
         if existing:
@@ -137,10 +163,12 @@ async def create_transaction(
                 "currency": body.currency,
                 "merchant_id": body.merchant_id,
                 "merchant_country": body.merchant_country,
-            }
+            },
         )
 
-        log.info("transaction_created", id=str(txn.id), amount=str(body.amount), user=user_id)
+        log.info(
+            "transaction_created", id=str(txn.id), amount=str(body.amount), user=user_id
+        )
         span.set_attribute("transaction_id", str(txn.id))
 
         return {"transaction_id": str(txn.id), "status": txn.status}
@@ -173,7 +201,9 @@ async def get_transaction(transaction_id: str, db: AsyncSession = Depends(get_db
             {
                 "transaction_id": str(txn.id),
                 "status": txn.status,
-                "risk_score": float(txn.risk_score) if txn.risk_score is not None else None,
+                "risk_score": (
+                    float(txn.risk_score) if txn.risk_score is not None else None
+                ),
                 "fraud_reasons": None,
             }
         )

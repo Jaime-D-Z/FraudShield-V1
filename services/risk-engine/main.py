@@ -2,10 +2,14 @@
 #  risk-engine  —  main.py
 #  Consume Redis Streams · aplica reglas · llama LLM · decide
 # ============================================================
-import asyncio, os, json, ast
+import ast
+import asyncio
+import json
+import os
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-import structlog, redis.asyncio as aioredis
+import redis.asyncio as aioredis
+import structlog
 from groq import AsyncGroq
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -15,26 +19,26 @@ from opentelemetry import trace
 
 try:
     from .database import AsyncSessionLocal
-    from .models import Transaction, TransactionStatus, RiskResult
+    from .models import Transaction, TransactionStatus
 except ImportError:  # pragma: no cover - fallback para ejecucion local directa
     from database import AsyncSessionLocal
-    from models import Transaction, TransactionStatus, RiskResult
+    from models import Transaction, TransactionStatus
 
-log    = structlog.get_logger()
+log = structlog.get_logger()
 tracer = trace.get_tracer("risk-engine")
 app = FastAPI(title="FraudShield — Risk Engine", version="1.0.0")
 Instrumentator().instrument(app).expose(app)
 GROQ_CLIENT = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
-REDIS_URL   = os.getenv("REDIS_URL",   "redis://localhost:6379")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 STREAM_NAME = "transactions"
-GROUP_NAME  = "risk-engine-group"
-CONSUMER    = "risk-engine-1"
+GROUP_NAME = "risk-engine-group"
+CONSUMER = "risk-engine-1"
 
 # ─── UMBRALES DE DECISIÓN ───────────────────────────────────
-THRESHOLD_APPROVE = 40   # score <  40 → APPROVED
-THRESHOLD_HOLD    = 75   # score <  75 → HELD
-                         # score >= 75 → BLOCKED
+THRESHOLD_APPROVE = 40  # score <  40 → APPROVED
+THRESHOLD_HOLD = 75  # score <  75 → HELD
+# score >= 75 → BLOCKED
 
 
 # ─── MOTOR DE REGLAS ────────────────────────────────────────
@@ -43,10 +47,10 @@ async def apply_rules(txn_data: dict, db: AsyncSession) -> tuple[int, list[str]]
     Aplica reglas deterministas. Retorna (score_parcial, [razones]).
     Cada regla suma puntos al score de riesgo.
     """
-    score   = 0
+    score = 0
     reasons = []
     user_id = txn_data["user_id"]
-    amount  = Decimal(txn_data["amount"])
+    amount = Decimal(txn_data["amount"])
     country = txn_data["merchant_country"]
 
     # ── Regla 1: monto inusual (> 3x promedio del usuario) ──
@@ -59,7 +63,9 @@ async def apply_rules(txn_data: dict, db: AsyncSession) -> tuple[int, list[str]]
     usual_countries = await get_user_countries(user_id, db)
     if usual_countries and country not in usual_countries:
         score += 25
-        reasons.append(f"merchant_country {country} not in user history: {usual_countries}")
+        reasons.append(
+            f"merchant_country {country} not in user history: {usual_countries}"
+        )
 
     # ── Regla 3: velocidad — más de 5 txn en la última hora ─
     recent_count = await count_recent_transactions(user_id, minutes=60, db=db)
@@ -116,7 +122,7 @@ Return ONLY this JSON, no explanation:
             return int(data.get("adjusted_score", rule_score))
     except Exception as e:
         log.warning("llm_analysis_failed", error=str(e))
-        return rule_score   # fallback al score de reglas si el LLM falla
+        return rule_score  # fallback al score de reglas si el LLM falla
 
 
 # ─── DECISIÓN FINAL ─────────────────────────────────────────
@@ -136,7 +142,7 @@ async def consume_stream():
     try:
         await redis.xgroup_create(STREAM_NAME, GROUP_NAME, id="0", mkstream=True)
     except Exception:
-        pass   # ya existe
+        pass  # ya existe
 
     log.info("risk-engine consumer started", stream=STREAM_NAME)
 
@@ -166,7 +172,7 @@ async def process_message(redis, msg_id: str, fields: dict):
     with tracer.start_as_current_span("process_transaction") as span:
         try:
             payload = ast.literal_eval(fields["payload"])
-            txn_id  = payload["transaction_id"]
+            txn_id = payload["transaction_id"]
             span.set_attribute("transaction_id", txn_id)
 
             async with AsyncSessionLocal() as db:
@@ -189,10 +195,10 @@ async def process_message(redis, msg_id: str, fields: dict):
                 decision = decide(final_score)
 
                 # 5. Actualizar transacción
-                txn.status       = decision
-                txn.risk_score   = final_score
+                txn.status = decision
+                txn.risk_score = final_score
                 txn.fraud_reasons = json.dumps(reasons)
-                txn.updated_at   = datetime.now(timezone.utc)
+                txn.updated_at = datetime.now(timezone.utc)
                 await db.commit()
 
                 log.info(
@@ -214,7 +220,7 @@ async def process_message(redis, msg_id: str, fields: dict):
                         "decision": decision,
                         "score": str(final_score),
                         "reasons": json.dumps(reasons),
-                    }
+                    },
                 )
 
             # Confirmar mensaje procesado
@@ -249,6 +255,7 @@ async def get_user_avg_amount(user_id: str, db: AsyncSession) -> Decimal | None:
         avg = result.scalar_one_or_none()
         return Decimal(avg) if avg is not None else None
 
+
 async def get_user_countries(user_id: str, db: AsyncSession) -> set[str]:
     """
     TODO para Copilot/Claude:
@@ -258,15 +265,22 @@ async def get_user_countries(user_id: str, db: AsyncSession) -> set[str]:
     """
     with tracer.start_as_current_span("db_get_user_countries"):
         cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-        stmt = select(Transaction.merchant_country).distinct().where(
-            Transaction.user_id == user_id,
-            Transaction.status == TransactionStatus.APPROVED,
-            Transaction.created_at >= cutoff,
+        stmt = (
+            select(Transaction.merchant_country)
+            .distinct()
+            .where(
+                Transaction.user_id == user_id,
+                Transaction.status == TransactionStatus.APPROVED,
+                Transaction.created_at >= cutoff,
+            )
         )
         result = await db.execute(stmt)
         return {country for country in result.scalars().all() if country}
 
-async def count_recent_transactions(user_id: str, minutes: int, db: AsyncSession) -> int:
+
+async def count_recent_transactions(
+    user_id: str, minutes: int, db: AsyncSession
+) -> int:
     """
     TODO para Copilot/Claude:
     'Implementa count_recent_transactions: cuenta cuántas transacciones
@@ -276,13 +290,18 @@ async def count_recent_transactions(user_id: str, minutes: int, db: AsyncSession
     with tracer.start_as_current_span("db_count_recent_transactions") as span:
         span.set_attribute("minutes", minutes)
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-        stmt = select(func.count()).select_from(Transaction).where(
-            Transaction.user_id == user_id,
-            Transaction.created_at >= cutoff,
+        stmt = (
+            select(func.count())
+            .select_from(Transaction)
+            .where(
+                Transaction.user_id == user_id,
+                Transaction.created_at >= cutoff,
+            )
         )
         result = await db.execute(stmt)
         count = result.scalar_one()
         return int(count)
+
 
 async def get_user_merchants(user_id: str, db: AsyncSession) -> set[str]:
     """
@@ -292,10 +311,14 @@ async def get_user_merchants(user_id: str, db: AsyncSession) -> set[str]:
     """
     with tracer.start_as_current_span("db_get_user_merchants"):
         cutoff = datetime.now(timezone.utc) - timedelta(days=180)
-        stmt = select(Transaction.merchant_id).distinct().where(
-            Transaction.user_id == user_id,
-            Transaction.status == TransactionStatus.APPROVED,
-            Transaction.created_at >= cutoff,
+        stmt = (
+            select(Transaction.merchant_id)
+            .distinct()
+            .where(
+                Transaction.user_id == user_id,
+                Transaction.status == TransactionStatus.APPROVED,
+                Transaction.created_at >= cutoff,
+            )
         )
         result = await db.execute(stmt)
         return {merchant for merchant in result.scalars().all() if merchant}

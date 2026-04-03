@@ -3,11 +3,6 @@ import os
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-try:
-    from .models import Base
-except ImportError:  # pragma: no cover - fallback para ejecucion local directa
-    from models import Base
-
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql+asyncpg://fraud:fraud123@localhost:5432/fraudshield"
 )

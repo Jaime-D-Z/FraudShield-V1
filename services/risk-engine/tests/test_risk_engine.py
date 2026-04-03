@@ -13,7 +13,9 @@ import pytest
 def risk_main_module():
     service_dir = pathlib.Path(__file__).resolve().parents[1]
 
-    models_spec = importlib.util.spec_from_file_location("risk_models", service_dir / "models.py")
+    models_spec = importlib.util.spec_from_file_location(
+        "risk_models", service_dir / "models.py"
+    )
     models = importlib.util.module_from_spec(models_spec)
     assert models_spec and models_spec.loader
     models_spec.loader.exec_module(models)
@@ -37,7 +39,9 @@ def risk_main_module():
     sys.modules["models"] = models
     sys.modules["database"] = database
 
-    main_spec = importlib.util.spec_from_file_location("risk_main", service_dir / "main.py")
+    main_spec = importlib.util.spec_from_file_location(
+        "risk_main", service_dir / "main.py"
+    )
     main = importlib.util.module_from_spec(main_spec)
     assert main_spec and main_spec.loader
     main_spec.loader.exec_module(main)
@@ -180,6 +184,7 @@ async def test_apply_rules_clean_transaction(risk_main_module, monkeypatch):
         def now(_tz):
             class D:
                 hour = 10
+
             return D()
 
     monkeypatch.setattr(risk_main_module, "datetime", FixedDateTime)
@@ -222,5 +227,7 @@ async def test_analyze_with_llm_fallback(risk_main_module, monkeypatch):
         "merchant_id": "m-1",
     }
 
-    score = await risk_main_module.analyze_with_llm(txn, rule_score=42, reasons=["rule"])
+    score = await risk_main_module.analyze_with_llm(
+        txn, rule_score=42, reasons=["rule"]
+    )
     assert score == 42

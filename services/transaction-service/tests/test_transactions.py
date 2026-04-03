@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import pathlib
 import sys
 import types
@@ -21,7 +20,9 @@ from sqlalchemy.pool import StaticPool
 def tx_modules():
     service_dir = pathlib.Path(__file__).resolve().parents[1]
 
-    models_spec = importlib.util.spec_from_file_location("tx_models", service_dir / "models.py")
+    models_spec = importlib.util.spec_from_file_location(
+        "tx_models", service_dir / "models.py"
+    )
     models = importlib.util.module_from_spec(models_spec)
     assert models_spec and models_spec.loader
     models_spec.loader.exec_module(models)
@@ -41,7 +42,9 @@ def tx_modules():
     original_database = sys.modules.get("database")
     sys.modules["database"] = database
 
-    main_spec = importlib.util.spec_from_file_location("tx_main", service_dir / "main.py")
+    main_spec = importlib.util.spec_from_file_location(
+        "tx_main", service_dir / "main.py"
+    )
     main = importlib.util.module_from_spec(main_spec)
     assert main_spec and main_spec.loader
     main_spec.loader.exec_module(main)
@@ -119,7 +122,10 @@ def sample_payload() -> dict:
 
 def auth_headers() -> dict[str, str]:
     token = jwt.encode(
-        {"sub": "user-test-1", "exp": int(datetime.now(timezone.utc).timestamp()) + 3600},
+        {
+            "sub": "user-test-1",
+            "exp": int(datetime.now(timezone.utc).timestamp()) + 3600,
+        },
         "test-secret",
         algorithm="HS256",
     )
@@ -134,17 +140,27 @@ async def test_health_check(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_transaction_success(async_client: AsyncClient, sample_payload: dict, mock_redis):
-    response = await async_client.post("/transactions", json=sample_payload, headers=auth_headers())
+async def test_create_transaction_success(
+    async_client: AsyncClient, sample_payload: dict, mock_redis
+):
+    response = await async_client.post(
+        "/transactions", json=sample_payload, headers=auth_headers()
+    )
     assert response.status_code == 202
     body = response.json()
     assert uuid.UUID(body["transaction_id"])
 
 
 @pytest.mark.asyncio
-async def test_create_transaction_idempotent(async_client: AsyncClient, sample_payload: dict, mock_redis):
-    first = await async_client.post("/transactions", json=sample_payload, headers=auth_headers())
-    second = await async_client.post("/transactions", json=sample_payload, headers=auth_headers())
+async def test_create_transaction_idempotent(
+    async_client: AsyncClient, sample_payload: dict, mock_redis
+):
+    first = await async_client.post(
+        "/transactions", json=sample_payload, headers=auth_headers()
+    )
+    second = await async_client.post(
+        "/transactions", json=sample_payload, headers=auth_headers()
+    )
 
     assert first.status_code == 202
     assert second.status_code == 202
@@ -152,16 +168,28 @@ async def test_create_transaction_idempotent(async_client: AsyncClient, sample_p
 
 
 @pytest.mark.asyncio
-async def test_create_transaction_negative_amount(async_client: AsyncClient, sample_payload: dict, mock_redis):
+async def test_create_transaction_negative_amount(
+    async_client: AsyncClient, sample_payload: dict, mock_redis
+):
     payload = {**sample_payload, "idempotency_key": "idem-key-neg", "amount": -1}
-    response = await async_client.post("/transactions", json=payload, headers=auth_headers())
+    response = await async_client.post(
+        "/transactions", json=payload, headers=auth_headers()
+    )
     assert response.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_create_transaction_invalid_country(async_client: AsyncClient, sample_payload: dict, mock_redis):
-    payload = {**sample_payload, "idempotency_key": "idem-key-country", "merchant_country": "USA"}
-    response = await async_client.post("/transactions", json=payload, headers=auth_headers())
+async def test_create_transaction_invalid_country(
+    async_client: AsyncClient, sample_payload: dict, mock_redis
+):
+    payload = {
+        **sample_payload,
+        "idempotency_key": "idem-key-country",
+        "merchant_country": "USA",
+    }
+    response = await async_client.post(
+        "/transactions", json=payload, headers=auth_headers()
+    )
     assert response.status_code == 422
 
 
@@ -172,8 +200,12 @@ async def test_create_transaction_missing_fields(async_client: AsyncClient, mock
 
 
 @pytest.mark.asyncio
-async def test_get_transaction_success(async_client: AsyncClient, sample_payload: dict, mock_redis):
-    created = await async_client.post("/transactions", json=sample_payload, headers=auth_headers())
+async def test_get_transaction_success(
+    async_client: AsyncClient, sample_payload: dict, mock_redis
+):
+    created = await async_client.post(
+        "/transactions", json=sample_payload, headers=auth_headers()
+    )
     txn_id = created.json()["transaction_id"]
 
     response = await async_client.get(f"/transactions/{txn_id}")

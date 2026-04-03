@@ -2,9 +2,11 @@
 #  audit-service  —  main.py
 #  Consume transaction.results y persiste trail inmutable
 # ============================================================
-import asyncio, os, json
+import asyncio
+import os
 from datetime import datetime, timezone
-import structlog, redis.asyncio as aioredis
+import redis.asyncio as aioredis
+import structlog
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 from opentelemetry import trace
@@ -25,24 +27,25 @@ tracer = trace.get_tracer("audit-service")
 app = FastAPI(title="FraudShield — Audit Service")
 Instrumentator().instrument(app).expose(app)
 
-REDIS_URL   = os.getenv("REDIS_URL", "redis://localhost:6379")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 STREAM_NAME = "transaction.results"
-GROUP_NAME  = "audit-group"
+GROUP_NAME = "audit-group"
 
 
 # ─── MODELO (append-only, nunca se modifica) ─────────────────
 class Base(DeclarativeBase):
     pass
 
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     transaction_id = Column(String, nullable=False, index=True)
-    user_id        = Column(String, nullable=False, index=True)
-    decision       = Column(String, nullable=False)
-    risk_score     = Column(Numeric(5, 2), nullable=True)
-    reasons        = Column(Text, nullable=True)
-    recorded_at    = Column(DateTime(timezone=True), nullable=False)
+    user_id = Column(String, nullable=False, index=True)
+    decision = Column(String, nullable=False)
+    risk_score = Column(Numeric(5, 2), nullable=True)
+    reasons = Column(Text, nullable=True)
+    recorded_at = Column(DateTime(timezone=True), nullable=False)
 
 
 @app.on_event("startup")
@@ -63,10 +66,13 @@ async def consume_stream():
     while True:
         try:
             messages = await redis.xreadgroup(
-                groupname=GROUP_NAME, consumername="audit-1",
-                streams={STREAM_NAME: ">"}, count=10, block=2000,
+                groupname=GROUP_NAME,
+                consumername="audit-1",
+                streams={STREAM_NAME: ">"},
+                count=10,
+                block=2000,
             )
-            for stream, entries in (messages or []):
+            for stream, entries in messages or []:
                 for msg_id, fields in entries:
                     async with AsyncSessionLocal() as db:
                         entry = AuditLog(
@@ -79,7 +85,11 @@ async def consume_stream():
                         )
                         db.add(entry)
                         await db.commit()
-                        log.info("audit_recorded", txn=fields["transaction_id"], decision=fields["decision"])
+                        log.info(
+                            "audit_recorded",
+                            txn=fields["transaction_id"],
+                            decision=fields["decision"],
+                        )
                     await redis.xack(STREAM_NAME, GROUP_NAME, msg_id)
         except Exception as e:
             log.error("audit_consumer_error", error=str(e))
@@ -115,14 +125,23 @@ async def get_audit(transaction_id: str, skip: int = 0, limit: int = 50):
                 "transaction_id": row.transaction_id,
                 "user_id": row.user_id,
                 "decision": row.decision,
-                "risk_score": float(row.risk_score) if row.risk_score is not None else None,
+                "risk_score": (
+                    float(row.risk_score) if row.risk_score is not None else None
+                ),
                 "reasons": row.reasons,
                 "recorded_at": row.recorded_at.isoformat() if row.recorded_at else None,
             }
             for row in rows
         ]
-        log.info("audit_fetched", transaction_id=transaction_id, count=len(data), skip=skip, limit=limit)
+        log.info(
+            "audit_fetched",
+            transaction_id=transaction_id,
+            count=len(data),
+            skip=skip,
+            limit=limit,
+        )
         return data
+
 
 @app.get("/health")
 async def health():
