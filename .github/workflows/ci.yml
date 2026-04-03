@@ -1,0 +1,167 @@
+# ============================================================
+#  .github/workflows/ci.yml
+#  lint → test → build → security scan → deploy local
+# ============================================================
+name: FraudShield CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/fraudshield
+
+jobs:
+
+  # ── 1. LINT & FORMAT ────────────────────────────────────────
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [transaction-service, risk-engine, audit-service, notification-service]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev deps
+        run: pip install ruff black mypy
+
+      - name: Ruff lint
+        run: ruff check services/${{ matrix.service }}/
+
+      - name: Black format check
+        run: black --check services/${{ matrix.service }}/
+
+      - name: Mypy type check
+        run: mypy services/${{ matrix.service }}/ --ignore-missing-imports
+        continue-on-error: true   # warning, no bloquea
+
+
+  # ── 2. TESTS ────────────────────────────────────────────────
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: lint
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fraud
+          POSTGRES_PASSWORD: fraud123
+          POSTGRES_DB: fraudshield_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          pip install -r services/transaction-service/requirements.txt \
+                      -r services/risk-engine/requirements.txt \
+                      pytest pytest-asyncio aiosqlite
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://fraud:fraud123@localhost:5432/fraudshield_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret
+        run: pytest services/ -v --tb=short
+
+
+  # ── 3. BUILD & SECURITY SCAN ────────────────────────────────
+  build-and-scan:
+    name: Build & scan — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        service: [transaction-service, risk-engine, audit-service, notification-service]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }} \
+            services/${{ matrix.service }}/
+
+      - name: Trivy — scan vulnerabilidades
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          format: table
+          exit-code: "1"             # falla el pipeline si hay CVE CRITICAL
+          severity: CRITICAL,HIGH
+
+      - name: Bandit — scan código Python
+        run: |
+          pip install bandit
+          bandit -r services/${{ matrix.service }}/ -ll --quiet
+
+      - name: Push imagen (solo en main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          docker tag ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }} \
+                     ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+          docker push ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+
+
+  # ── 4. SMOKE TEST DOCKER COMPOSE ─────────────────────────────
+  deploy:
+    name: Smoke Test Compose
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start stack with compose
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          cd infra
+          docker compose up -d --build postgres redis transaction-service
+
+      - name: Smoke test
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8001/health; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Notify resultado
+        if: always()
+        run: |
+          echo "Deploy status: ${{ job.status }}"
+          # TODO para Copilot/Claude:
+          # 'Agrega notificación a Slack con el resultado del deploy.
+          #  Usa SLACK_WEBHOOK secret del repo. Incluye branch, sha y status.'

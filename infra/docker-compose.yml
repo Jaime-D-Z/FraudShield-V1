@@ -1,0 +1,189 @@
+networks:
+  fraudnet:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
+services:
+
+  # ─── INFRAESTRUCTURA BASE ────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fraud
+      POSTGRES_PASSWORD: fraud123
+      POSTGRES_DB: fraudshield
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - fraudnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fraud"]
+      interval: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - fraudnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://fraud:fraud123@postgres:5432/fraudshield?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fraudnet
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - fraudnet
+
+  # ─── MICROSERVICIOS ──────────────────────────────────────────────
+  transaction-service:
+    build: ../services/transaction-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fraud:fraud123@postgres:5432/fraudshield
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: super-secret-dev-key
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      OTEL_SERVICE_NAME: transaction-service
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - fraudnet
+
+  risk-engine:
+    build: ../services/risk-engine
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fraud:fraud123@postgres:5432/fraudshield
+      REDIS_URL: redis://redis:6379
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      OTEL_SERVICE_NAME: risk-engine
+    ports:
+      - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - fraudnet
+
+  audit-service:
+    build: ../services/audit-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fraud:fraud123@postgres:5432/fraudshield
+      REDIS_URL: redis://redis:6379
+      OTEL_SERVICE_NAME: audit-service
+    ports:
+      - "8003:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fraudnet
+
+  notification-service:
+    build: ../services/notification-service
+    environment:
+      REDIS_URL: redis://redis:6379
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-""}
+      OTEL_SERVICE_NAME: notification-service
+    ports:
+      - "8004:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - fraudnet
+
+  # ─── OBSERVABILIDAD ──────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ../observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - fraudnet
+
+  loki:
+    image: grafana/loki:latest
+    volumes:
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - fraudnet
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ../observability/tempo.yml:/etc/tempo.yaml
+    ports:
+      - "3200:3200"
+      - "4317:4317"   # OTLP gRPC
+    networks:
+      - fraudnet
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../observability/promtail.yml:/etc/promtail/config.yml
+    networks:
+      - fraudnet
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - fraudnet
