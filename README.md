@@ -263,11 +263,6 @@ pytest services/risk-engine/tests -v --tb=short
 - Loki: http://localhost:3100
 - Tempo: http://localhost:3200
 
-Guias disponibles:
-
-- [GUIA_FUNCIONAMIENTO_Y_USO.md](GUIA_FUNCIONAMIENTO_Y_USO.md)
-- [GUIA_OBSERVABILIDAD.md](GUIA_OBSERVABILIDAD.md)
-
 ## Contribuir
 
 1. Crea una rama desde `main` o `develop`.
@@ -288,11 +283,4 @@ pytest services/ -v --tb=short
 
 ## Licencia
 
-No se encontro archivo de licencia (`LICENSE`, `LICENSE.md` o equivalente) en el estado actual del repositorio.
-
-Si quieres publicarlo formalmente, se recomienda agregar una licencia explicita (por ejemplo MIT, Apache-2.0 o GPL-3.0).
-
-## Notas de exactitud
-
-- Este README fue generado a partir de la estructura y codigo actual del repositorio.
-- Punto detectado: `.env.example` actualmente solo contiene `GROQ_API_KEY`, mientras que el proyecto soporta variables adicionales para notificaciones SMTP/Slack.
+MIT
